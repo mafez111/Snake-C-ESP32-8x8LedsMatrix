@@ -1,0 +1,265 @@
+//Bibliotecas
+#include <stddef.h>
+#include "driver/gpio.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+#include <unistd.h>
+
+//Definición de pines para filas
+#define r1_pin 14
+#define r2_pin 32
+#define r3_pin 33
+#define r4_pin 25
+#define r5_pin 16
+#define r6_pin 17
+#define r7_pin 5
+#define r8_pin 18
+
+//Definición de pines para columnas
+#define c1_pin 26
+#define c2_pin 27
+#define c3_pin 12
+#define c4_pin 13
+#define c5_pin 15
+#define c6_pin 2
+#define c7_pin 0
+#define c8_pin 4
+#define roja 1
+
+//Selección de pines en ESP32 para filas
+#define r1_pinsel (1ULL << r1_pin)
+#define r2_pinsel (1ULL << r2_pin)
+#define r3_pinsel (1ULL << r3_pin)
+#define r4_pinsel (1ULL << r4_pin)
+#define r5_pinsel (1ULL << r5_pin)
+#define r6_pinsel (1ULL << r6_pin)
+#define r7_pinsel (1ULL << r7_pin)
+#define r8_pinsel (1ULL << r8_pin)
+
+//Selección de pines en ESP32 para columnas
+#define c1_pinsel (1ULL << c1_pin)
+#define c2_pinsel (1ULL << c2_pin)
+#define c3_pinsel (1ULL << c3_pin)
+#define c4_pinsel (1ULL << c4_pin)
+#define c5_pinsel (1ULL << c5_pin)
+#define c6_pinsel (1ULL << c6_pin)
+#define c7_pinsel (1ULL << c7_pin)
+#define c8_pinsel (1ULL << c8_pin)
+// #define c9_pinsel (1ULL << roja)
+
+//Vector para filas y columnas
+int rows[8] = {r1_pin, r2_pin, r3_pin, r4_pin, r5_pin, r6_pin, r7_pin, r8_pin};
+int col[8]= {c1_pin, c2_pin, c3_pin, c4_pin, c5_pin, c6_pin, c7_pin, c8_pin};
+
+//Definicón de botones
+#define GPIO_ARRIBA 19
+#define GPIO_ARRIBA_PIN_SEL (1ULL << GPIO_ARRIBA)
+#define GPIO_IZQUIERDA 22
+#define GPIO_IZQUIERDA_PIN_SEL (1ULL << GPIO_IZQUIERDA)
+#define GPIO_ABAJO 23
+#define GPIO_ABAJO_PIN_SEL (1ULL << GPIO_ABAJO)
+#define GPIO_DERECHA 3
+#define GPIO_DERECHA_PIN_SEL (1ULL << GPIO_DERECHA)
+
+#define ESP_INTR_FLAG_DEFAULT 0
+
+//Se define la estructura del cuerpo de la serpiente, al ser una estructura tiene parámetros en x^y
+typedef struct {
+    int x;
+    int y;
+} Parte;
+
+// Se definen constantes para el tamaño de la matriz y el tamaño inicial de la serpiente
+#define ancho 8
+#define alto 8
+#define lon_inicial 3
+
+//La siguiente función me enciende los leds que yo le diga dentro de la matriz
+void encender_verdes(int matrizverde[8][8]) 
+{
+    for (int i = 0; i < 8; i++) {
+        gpio_set_level(col[i], 1); 
+        int p_col[8];
+        if (i >= 0 && i <= 7) {
+            //una vez para cada valor de i desde 0 hasta 6
+            for (int j = 0; j < 8; ++j) {
+                p_col[j] = matrizverde[i][j]; //En la matriz, donde hayan 1 me enciende los leds
+            }
+        } else {
+            // En la matriz, donde halla caracteres diferentes a 1, se deja el led apagado
+            for (int j = 0; j < 8; ++j) {
+                p_col[j] = 0;
+            }
+        }
+            //Vector de pines se lo asigno a salidas de LEDS
+
+        for (int j = 0 ; j < 8; j++){
+            gpio_set_level(rows[j], p_col[j]);
+        }
+ 
+        vTaskDelay(18/ portTICK_PERIOD_MS);
+
+        gpio_set_level(col[i], 0); //Apago los leds
+    } 
+}
+
+void app_main() {
+    // Configurar pines de los leds como salidas
+    gpio_config_t io_conf = {};
+    io_conf.intr_type = GPIO_INTR_DISABLE;
+    io_conf.mode = GPIO_MODE_OUTPUT;
+
+    //Filas
+    io_conf.pin_bit_mask = r1_pinsel | r2_pinsel | r3_pinsel | r4_pinsel | r5_pinsel | r6_pinsel | r7_pinsel | r8_pinsel;
+    io_conf.pull_down_en = 0;
+    io_conf.pull_up_en = 0;
+    gpio_config(&io_conf);
+
+    // Columnas
+    io_conf.pin_bit_mask = c1_pinsel | c2_pinsel | c3_pinsel | c4_pinsel | c5_pinsel | c6_pinsel | c7_pinsel | c8_pinsel| roja;
+    gpio_config(&io_conf); 
+
+    //Configurar los pines de los botones como entradas
+    gpio_config_t io_conf_b;
+    io_conf.mode = GPIO_MODE_INPUT;
+    io_conf.pin_bit_mask = GPIO_ARRIBA_PIN_SEL;
+    io_conf.intr_type = GPIO_INTR_DISABLE;
+    io_conf.pull_down_en = 0;
+    io_conf.pull_up_en = 0;
+    gpio_config(&io_conf_b);
+
+    io_conf.mode = GPIO_MODE_INPUT;
+    io_conf.pin_bit_mask = GPIO_IZQUIERDA_PIN_SEL;
+    io_conf.intr_type = GPIO_INTR_DISABLE;
+    io_conf.pull_down_en = 0;
+    io_conf.pull_up_en = 0;
+    gpio_config(&io_conf_b);
+    
+    io_conf.mode = GPIO_MODE_INPUT;
+    io_conf.pin_bit_mask = GPIO_ABAJO_PIN_SEL;
+    io_conf.intr_type = GPIO_INTR_DISABLE;
+    io_conf.pull_down_en = 0;
+    io_conf.pull_up_en = 0;
+    gpio_config(&io_conf_b);
+
+    io_conf.mode = GPIO_MODE_INPUT;
+    io_conf.pin_bit_mask = GPIO_DERECHA_PIN_SEL;
+    io_conf.intr_type = GPIO_INTR_DISABLE;
+    io_conf.pull_down_en = 0;
+    io_conf.pull_up_en = 0;
+    gpio_config(&io_conf_b);
+	
+    
+    Parte serpiente[ancho * alto]; // Arreglo para almacenar las partes de la serpiente
+    int longitud = lon_inicial; // Longitud inicial de la serpiente
+    int direccion = 0; // 0: derecha, 1: abajo, 2: izquierda, 3: arriba
+    int comidaX, comidaY; // Coordenadas de la comida
+
+    // Inicializar la serpiente en la posición central
+    for (int i = 0; i < lon_inicial; i++) {
+        serpiente[i].x = 4+i; //Se le suma i para que ubique no solo 1 parte del cuerpo, sino el cuerpo completo
+        serpiente[i].y = 5;
+    }
+
+    // Generar la posición inicial de la comida
+    srand(time(NULL));
+    comidaX = rand() % ancho;
+    comidaY = rand() % alto;
+
+    static bool arriba = 1;
+    static bool izquierda = 1;
+    static bool abajo = 1;
+    static bool derecha = 1;
+
+    while (1) {
+        
+        // Leer el estado de los interruptores
+        arriba = gpio_get_level(GPIO_ARRIBA);
+        izquierda = gpio_get_level(GPIO_IZQUIERDA);
+        abajo = gpio_get_level(GPIO_ABAJO);
+        derecha = gpio_get_level(GPIO_DERECHA);
+
+        // Actualizar la dirección de la serpiente según los interruptores, no puede ser opuesta a la posición actual
+        if (arriba==0 && direccion != 1) {
+            direccion = 3;
+        }
+        
+        else if (izquierda==0 && direccion != 0) {
+            direccion = 2;
+        }
+        
+        else if (abajo==0 && direccion != 3) {
+            direccion = 1;
+        }
+
+        else if (derecha==0 && direccion != 2) {
+            direccion = 0;
+        }
+
+        vTaskDelay(50 / portTICK_PERIOD_MS);
+
+        // Mover la serpiente
+        for (int i = longitud - 1; i > 0; i--) {
+            // Mover cada parte de la serpiente a la posición de la parte anterior
+            serpiente[i].x = serpiente[i - 1].x;
+            serpiente[i].y = serpiente[i - 1].y;
+        }
+
+
+        // Mover la cabeza de la serpiente según la dirección actual
+        switch (direccion) {
+            case 0: // Derecha
+                serpiente[0].x = (serpiente[0].x + 1) % ancho;
+                break;
+            case 1: // Abajo
+                serpiente[0].y = (serpiente[0].y + 1) % alto;
+                break;
+            case 2: // Izquierda
+                serpiente[0].x = (serpiente[0].x + ancho - 1) % ancho;
+                break;
+            case 3: // Arriba
+                serpiente[0].y = (serpiente[0].y + alto - 1) % alto;
+                break;
+        }	       
+        
+        //Lo que pasa cuando la serpiente llega a la comida
+        if (serpiente[0].x == comidaX && serpiente[0].y == comidaY) {
+            // Incrementar la longitud de la serpiente
+            longitud++;
+            serpiente[longitud-1].x=serpiente[longitud-2].x;
+            serpiente[longitud-1].y=serpiente[longitud-2].y;
+            // Generar una nueva posición para la comida
+            do {
+                comidaX = rand() % ancho;
+                comidaY = rand() % alto;
+            } while (comidaX == serpiente[0].x && comidaY == serpiente[0].y); // Asegurarse de que la nueva comida no esté en la cabeza de la serpiente
+        }
+
+        int matrizverde[8][8] = {
+            {0,0,0,0,0,0,0,0},   
+            {0,0,0,0,0,0,0,0},  
+            {0,0,0,0,0,0,0,0},  
+            {0,0,0,0,0,0,0,0},  
+            {0,0,0,0,0,0,0,0},  
+            {0,0,0,0,0,0,0,0},  
+            {0,0,0,0,0,0,0,0},  
+            {0,0,0,0,0,0,0,0},  
+            
+        };
+        
+        for(int i = 0; i<longitud; i++){
+            matrizverde[serpiente[i].x][serpiente[i].y]=1;
+        }
+
+        matrizverde[comidaX][comidaY]=1;
+
+        for (int count = 0; count < 10; count++) {
+            encender_verdes(matrizverde);        
+        } 
+        // Pequeña demora para controlar la velocidad del juego
+        vTaskDelay(100 / portTICK_PERIOD_MS);
+    }
+}
